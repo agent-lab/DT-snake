@@ -125,7 +125,8 @@ class Snake:
         for p in path:
             self.move(p)
 
-    def move(self, new_direc=None):
+    def move(self, new_direc=None)->int:
+        reward = 0
         if new_direc is not None:
             self._direc_next = new_direc
 
@@ -135,7 +136,7 @@ class Snake:
             or self._map.is_full()
             or self._direc_next == Direc.opposite(self._direc)
         ):
-            return
+            return -1
 
         old_head_type, new_head_type = self._new_types()
         self._map.point(self.head()).type = old_head_type
@@ -144,14 +145,19 @@ class Snake:
 
         if not self._map.is_safe(new_head):
             self._dead = True
+            reward = -1
         if self._map.point(new_head).type == PointType.FOOD:
             self._map.rm_food()
+            reward = 1
+            # print("apple")
+
         else:
             self._rm_tail()
 
         self._map.point(new_head).type = new_head_type
         self._direc = self._direc_next
         self._steps += 1
+        return reward
 
     def _rm_tail(self):
         self._map.point(self.tail()).type = PointType.EMPTY

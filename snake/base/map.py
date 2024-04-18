@@ -33,6 +33,18 @@ class Map:
                     self._content[i][j].type = PointType.WALL
                 else:
                     self._content[i][j].type = PointType.EMPTY
+                    
+    # def __str__(self) -> str:
+    #     response = ""
+    #     for i in range(self._num_rows):
+    #         for j in range(self._num_cols):#
+    #             value = self._content[i][j].type.value
+    #             if  value > 2:
+    #                 value = 3
+
+    #             response+= str(value)+" "
+    #         response += "\n"
+    #     return response
 
     def copy(self):
         m_copy = Map(self._num_rows, self._num_cols)
@@ -94,6 +106,8 @@ class Map:
         for i in range(1, self.num_rows - 1):
             for j in range(1, self.num_cols - 1):
                 t = self._content[i][j].type
+                # print("map t", t, type(t))
+                # print("map PointType.HEAD_L", PointType.HEAD_L, type(PointType.HEAD_L))
                 if t.value < PointType.HEAD_L.value:
                     return False
         return True
