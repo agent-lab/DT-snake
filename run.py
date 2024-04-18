@@ -6,6 +6,8 @@ from snake.game import Game, GameConf, GameMode
 def main():
     dict_solver = {
         "greedy": "GreedySolver",
+        "weak": "WeakGreedySolver",
+        "worst": "WorstGreedySolver",
         "hamilton": "HamiltonSolver",
         "dqn": "DQNSolver",
     }

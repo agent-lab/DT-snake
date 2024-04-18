@@ -9,7 +9,7 @@ import cv2
 import time
 import numpy as np
 # Add solver names to globals()
-from snake.solver import DQNSolver, GreedySolver, HamiltonSolver
+from snake.solver import DQNSolver, GreedySolver, HamiltonSolver, WeakGreedySolver, WorstGreedySolver
 from typing import Dict, Tuple, List
 import pickle
 
@@ -32,7 +32,7 @@ class GameConf:
         self.solver_name = "HamiltonSolver"  # Class name of the solver
 
         # output
-        self.game_log_file = "file.pickle"
+        self.game_log_file = "data"
 
         # Size
         self.map_rows = 8
@@ -96,7 +96,7 @@ class Game:
         self._init_log_file()
         self._reward = 0
         self._game_log: Dict[int, Dict[str, List]] = {}
-        self._game_log[self._episode] = {"reward":[], "action":[], "state":[]}
+        self._game_log[self._episode] = {"reward":[], "action":[], "state":[], "RTG": []}
 
     @property
     def snake(self):
@@ -143,8 +143,10 @@ class Game:
 
         tot_len, tot_steps = 0, 0
 
+
         for _ in range(num_episodes):
             print(f"Episode {self._episode} - ", end="")
+            self._game_log[self._episode] = {"reward":[], "action":[], "state":[], "RTG": []}
             while True:
                 self._reward = 0
                 self._game_main_normal()
@@ -154,11 +156,13 @@ class Game:
                         f"FULL (len: {self._snake.len()} | steps: {self._snake.steps})"
                     )
                     self._reward = 1
+                    self._game_log[self._episode]["reward"][-1] = 1
                     break
                 if self._snake.dead:
                     print(
                         f"DEAD (len: {self._snake.len()} | steps: {self._snake.steps})"
                     )
+                    self._game_log[self._episode]["reward"][-1] = -1
                     self._reward = -1
                     break
                 if self._snake.steps >= steps_limit:
@@ -166,10 +170,11 @@ class Game:
                         f"STEP LIMIT (len: {self._snake.len()} | steps: {self._snake.steps})"
                     )
                     self._write_logs()  # Write the last step
+                    self._game_log[self._episode]["reward"][-1] = -1
                     self._reward = -1
                     break
             tot_len += self._snake.len()
-            tot_steps += self._snake.steps
+            tot_steps += self._snake.steps       
             self._reset()
 
         avg_len = tot_len / num_episodes
@@ -266,6 +271,7 @@ class Game:
         self._reward = self._snake.move()
 
         self._game_log[self._episode]["reward"].append(self._reward)
+        self._game_log[self._episode]["RTG"].append(self._reward)
         self._game_log[self._episode]["action"].append(new_direc.value)
         self._game_log[self._episode]["state"].append(img)
 
@@ -303,11 +309,22 @@ class Game:
         self._reward = 0
         
         self._episode += 1
-        self._game_log[self._episode] = {"reward":[], "action":[], "state":[]}
+        # self._game_log[self._episode] = {"reward":[], "action":[], "state":[], "RTG": []}
 
     def _on_exit(self):
         # print(self._game_log)
-        with open(self._conf.game_log_file, 'wb') as handle:
+        
+        for ep in self._game_log:
+            current_sum = 0
+            for i in range(len(self._game_log[ep]["reward"])-1, -1, -1):
+
+                r = self._game_log[ep]["reward"][i]
+                current_sum += r
+                # print(ep, i, current_sum)
+                self._game_log[ep]["RTG"][i] = current_sum
+            # print(self._game_log[ep]["RTG"])
+
+        with open(f"{self._conf.game_log_file}/{self._conf.solver_name}.pickle" + "", 'wb') as handle:
             pickle.dump(self._game_log, handle, protocol=pickle.HIGHEST_PROTOCOL)
         # with open(self._conf.game_log_file, 'wb') as file:
         #      file.write(pickle.dumps(self._game_log)) 

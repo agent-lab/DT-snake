@@ -1,5 +1,5 @@
 from enum import Enum, unique
-
+import random
 
 @unique
 class Direc(Enum):
@@ -20,3 +20,10 @@ class Direc(Enum):
         if direc == Direc.DOWN:
             return Direc.UP
         return Direc.NONE
+    
+    @staticmethod
+    def sample(current_d):
+        return random.choice(
+           [d for d in [Direc.LEFT, Direc.UP, Direc.RIGHT, Direc.DOWN]  if d is not Direc.opposite(current_d)
+            ]
+            )

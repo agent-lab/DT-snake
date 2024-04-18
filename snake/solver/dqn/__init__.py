@@ -22,9 +22,9 @@ from snake.solver.dqn.history import History
 from snake.solver.dqn.logger import log
 from snake.solver.dqn.memory import Memory
 from snake.solver.dqn.snakeaction import SnakeAction
-
+from snake.solver.dqn.nn import MyModel
 _DIR_LOG = "logs"
-
+tf.compat.v1.disable_eager_execution()
 
 class DQNSolver(BaseSolver):
     PATH_VAR = os.path.join(_DIR_LOG, "solver-var-%d.json")
@@ -153,17 +153,17 @@ class DQNSolver(BaseSolver):
 
     def _build_graph(self):
         # Input tensor for eval net
-        self._state_eval = tf.placeholder(
+        self._state_eval = tf.compat.v1.placeholder(
             tf.float32, [None, self._num_all_features], name="state_eval"
         )
 
         # Input tensor for target net
-        self._state_target = tf.placeholder(
+        self._state_target = tf.compat.v1.placeholder(
             tf.float32, [None, self._num_all_features], name="state_target"
         )
 
         # Input tensor for actions taken by agent
-        self._action = tf.placeholder(
+        self._action = tf.compat.v1.placeholder(
             tf.int32,
             [
                 None,
@@ -172,7 +172,7 @@ class DQNSolver(BaseSolver):
         )
 
         # Input tensor for rewards received by agent
-        self._reward = tf.placeholder(
+        self._reward = tf.compat.v1.placeholder(
             tf.float32,
             [
                 None,
@@ -181,7 +181,7 @@ class DQNSolver(BaseSolver):
         )
 
         # Input tensor for whether episodes are finished
-        self._done = tf.placeholder(
+        self._done = tf.compat.v1.placeholder(
             tf.bool,
             [
                 None,
@@ -190,12 +190,12 @@ class DQNSolver(BaseSolver):
         )
 
         # Input tensor for eval net output of next state
-        self._q_eval_all_nxt = tf.placeholder(
+        self._q_eval_all_nxt = tf.compat.v1.placeholder(
             tf.float32, [None, self._num_actions], name="q_eval_all_nxt"
         )
 
         # Input tensor for importance-sampling weights
-        self.weights = tf.placeholder(
+        self.weights = tf.compat.v1.placeholder(
             tf.float32,
             [
                 None,
@@ -209,20 +209,20 @@ class DQNSolver(BaseSolver):
         w_init = tf.keras.initializers.he_normal()
         b_init = tf.constant_initializer(0)
 
-        with tf.variable_scope(scope_eval_net):
+        with tf.compat.v1.variable_scope(scope_eval_net):
             # Eval net output
             self._q_eval_all = self._build_net(
                 self._state_eval, "q_eval_all", w_init, b_init
             )
 
-        with tf.variable_scope("q_eval"):
+        with tf.compat.v1.variable_scope("q_eval"):
             q_eval = self._filter_actions(self._q_eval_all, self._action)
 
-        with tf.variable_scope(scope_target_net):
+        with tf.compat.v1.variable_scope(scope_target_net):
             # Target net output
             q_nxt_all = self._build_net(self._state_target, "q_nxt_all", w_init, b_init)
 
-        with tf.variable_scope("q_target"):
+        with tf.compat.v1.variable_scope("q_target"):
             max_actions = None
             if self._use_ddqn:
                 max_actions = tf.argmax(
@@ -236,8 +236,8 @@ class DQNSolver(BaseSolver):
             )
             q_target = tf.stop_gradient(q_target)
 
-        with tf.variable_scope("loss"):
-            with tf.variable_scope("td_err"):
+        with tf.compat.v1.variable_scope("loss"):
+            with tf.compat.v1.variable_scope("td_err"):
                 td_err = tf.clip_by_value(
                     q_eval - q_target,
                     clip_value_min=self._td_lower,
@@ -246,13 +246,13 @@ class DQNSolver(BaseSolver):
             self._loss = tf.reduce_mean(self.weights * tf.square(td_err))
             self._td_err_abs = tf.abs(td_err, name="td_err_abs")  # To update sum tree
 
-        with tf.variable_scope("train"):
+        with tf.compat.v1.variable_scope("train"):
             self._train = tf.train.RMSPropOptimizer(
                 learning_rate=self._lr, momentum=self._momentum
             ).minimize(self._loss)
 
         # Replace target net params with eval net's
-        with tf.variable_scope("replace"):
+        with tf.compat.v1.variable_scope("replace"):
             eval_params = tf.get_collection(
                 tf.GraphKeys.GLOBAL_VARIABLES, scope=scope_eval_net
             )
@@ -266,170 +266,181 @@ class DQNSolver(BaseSolver):
         return eval_params, target_params
 
     def _build_net(self, features, output_name, w_init_, b_init_):
-        visual_state = tf.slice(
-            features,
-            begin=[0, 0],
-            size=[-1, self._num_visual_features],
-            name="visual_state",
+        return MyModel(
+            self._num_visual_features,
+            self._shape_visual_state, 
+            self._num_important_features, 
+            self._num_actions, 
+            self._use_visual_only,
+            self._use_dueling, 
+            w_init_, 
+            b_init_
         )
+        
+        # visual_state = tf.slice(
+        #     features,
+        #     begin=[0, 0],
+        #     size=[-1, self._num_visual_features],
+        #     name="visual_state",
+        # )
 
-        visual_state_2d = tf.reshape(
-            tensor=visual_state,
-            shape=[
-                -1,
-                self._shape_visual_state[0],
-                self._shape_visual_state[1],
-                self._shape_visual_state[2],
-            ],
-            name="visual_state_2d",
-        )
+        # visual_state_2d = tf.reshape(
+        #     tensor=visual_state,
+        #     shape=[
+        #         -1,
+        #         self._shape_visual_state[0],
+        #         self._shape_visual_state[1],
+        #         self._shape_visual_state[2],
+        #     ],
+        #     name="visual_state_2d",
+        # )
 
-        conv1 = tf.layers.conv2d(
-            inputs=visual_state_2d,
-            filters=32,
-            kernel_size=3,
-            strides=1,
-            padding="valid",
-            activation=self._leaky_relu,
-            kernel_initializer=w_init_,
-            bias_initializer=b_init_,
-            name="conv1",
-        )
+        # conv1 = tf.layers.conv2d(
+        #     inputs=visual_state_2d,
+        #     filters=32,
+        #     kernel_size=3,
+        #     strides=1,
+        #     padding="valid",
+        #     activation=self._leaky_relu,
+        #     kernel_initializer=w_init_,
+        #     bias_initializer=b_init_,
+        #     name="conv1",
+        # )
 
-        conv2 = tf.layers.conv2d(
-            inputs=conv1,
-            filters=64,
-            kernel_size=3,
-            strides=1,
-            padding="valid",
-            activation=self._leaky_relu,
-            kernel_initializer=w_init_,
-            bias_initializer=b_init_,
-            name="conv2",
-        )
+        # conv2 = tf.layers.conv2d(
+        #     inputs=conv1,
+        #     filters=64,
+        #     kernel_size=3,
+        #     strides=1,
+        #     padding="valid",
+        #     activation=self._leaky_relu,
+        #     kernel_initializer=w_init_,
+        #     bias_initializer=b_init_,
+        #     name="conv2",
+        # )
 
-        conv3 = tf.layers.conv2d(
-            inputs=conv2,
-            filters=128,
-            kernel_size=2,
-            strides=1,
-            padding="valid",
-            activation=self._leaky_relu,
-            kernel_initializer=w_init_,
-            bias_initializer=b_init_,
-            name="conv3",
-        )
+        # conv3 = tf.layers.conv2d(
+        #     inputs=conv2,
+        #     filters=128,
+        #     kernel_size=2,
+        #     strides=1,
+        #     padding="valid",
+        #     activation=self._leaky_relu,
+        #     kernel_initializer=w_init_,
+        #     bias_initializer=b_init_,
+        #     name="conv3",
+        # )
 
-        conv4 = tf.layers.conv2d(
-            inputs=conv3,
-            filters=256,
-            kernel_size=2,
-            strides=1,
-            padding="valid",
-            activation=self._leaky_relu,
-            kernel_initializer=w_init_,
-            bias_initializer=b_init_,
-            name="conv4",
-        )
+        # conv4 = tf.layers.conv2d(
+        #     inputs=conv3,
+        #     filters=256,
+        #     kernel_size=2,
+        #     strides=1,
+        #     padding="valid",
+        #     activation=self._leaky_relu,
+        #     kernel_initializer=w_init_,
+        #     bias_initializer=b_init_,
+        #     name="conv4",
+        # )
 
-        conv4_flat = tf.reshape(
-            tensor=conv4, shape=[-1, 2 * 2 * 256], name="conv4_flat"
-        )
+        # conv4_flat = tf.reshape(
+        #     tensor=conv4, shape=[-1, 2 * 2 * 256], name="conv4_flat"
+        # )
 
-        combined_features = None
+        # combined_features = None
 
-        if self._use_visual_only:
-            combined_features = conv4_flat
+        # if self._use_visual_only:
+        #     combined_features = conv4_flat
 
-        else:
-            important_state = tf.slice(
-                features,
-                begin=[0, self._num_visual_features],
-                size=[-1, self._num_important_features],
-                name="important_state",
-            )
+        # else:
+        #     important_state = tf.slice(
+        #         features,
+        #         begin=[0, self._num_visual_features],
+        #         size=[-1, self._num_important_features],
+        #         name="important_state",
+        #     )
 
-            combined_features = tf.concat(
-                [conv4_flat, important_state], axis=1, name="combined_features"
-            )
+        #     combined_features = tf.concat(
+        #         [conv4_flat, important_state], axis=1, name="combined_features"
+        #     )
 
-        fc1 = tf.layers.dense(
-            inputs=combined_features,
-            units=1024,
-            activation=self._leaky_relu,
-            kernel_initializer=w_init_,
-            bias_initializer=b_init_,
-            name="fc1",
-        )
+        # fc1 = tf.layers.dense(
+        #     inputs=combined_features,
+        #     units=1024,
+        #     activation=self._leaky_relu,
+        #     kernel_initializer=w_init_,
+        #     bias_initializer=b_init_,
+        #     name="fc1",
+        # )
 
-        q_all = None
+        # q_all = None
 
-        if self._use_dueling:
-            fc2_v = tf.layers.dense(
-                inputs=fc1,
-                units=512,
-                activation=self._leaky_relu,
-                kernel_initializer=w_init_,
-                bias_initializer=b_init_,
-                name="fc2_v",
-            )
+        # if self._use_dueling:
+        #     fc2_v = tf.layers.dense(
+        #         inputs=fc1,
+        #         units=512,
+        #         activation=self._leaky_relu,
+        #         kernel_initializer=w_init_,
+        #         bias_initializer=b_init_,
+        #         name="fc2_v",
+        #     )
 
-            fc2_a = tf.layers.dense(
-                inputs=fc1,
-                units=512,
-                activation=self._leaky_relu,
-                kernel_initializer=w_init_,
-                bias_initializer=b_init_,
-                name="fc2_a",
-            )
+        #     fc2_a = tf.layers.dense(
+        #         inputs=fc1,
+        #         units=512,
+        #         activation=self._leaky_relu,
+        #         kernel_initializer=w_init_,
+        #         bias_initializer=b_init_,
+        #         name="fc2_a",
+        #     )
 
-            v = tf.layers.dense(
-                inputs=fc2_v,
-                units=1,
-                activation=self._leaky_relu,
-                kernel_initializer=w_init_,
-                bias_initializer=b_init_,
-                name="v",
-            )
+        #     v = tf.layers.dense(
+        #         inputs=fc2_v,
+        #         units=1,
+        #         activation=self._leaky_relu,
+        #         kernel_initializer=w_init_,
+        #         bias_initializer=b_init_,
+        #         name="v",
+        #     )
 
-            a = tf.layers.dense(
-                inputs=fc2_a,
-                units=self._num_actions,
-                activation=self._leaky_relu,
-                kernel_initializer=w_init_,
-                bias_initializer=b_init_,
-                name="a",
-            )
+        #     a = tf.layers.dense(
+        #         inputs=fc2_a,
+        #         units=self._num_actions,
+        #         activation=self._leaky_relu,
+        #         kernel_initializer=w_init_,
+        #         bias_initializer=b_init_,
+        #         name="a",
+        #     )
 
-            with tf.variable_scope(output_name):
-                a_mean = tf.reduce_mean(a, axis=1, keep_dims=True, name="a_mean")
-                q_all = v + (a - a_mean)
+        #     with tf.compat.v1.variable_scope(output_name):
+        #         a_mean = tf.reduce_mean(a, axis=1, keep_dims=True, name="a_mean")
+        #         q_all = v + (a - a_mean)
 
-        else:
-            fc2 = tf.layers.dense(
-                inputs=fc1,
-                units=1024,
-                activation=self._leaky_relu,
-                kernel_initializer=w_init_,
-                bias_initializer=b_init_,
-                name="fc2",
-            )
+        # else:
+        #     fc2 = tf.layers.dense(
+        #         inputs=fc1,
+        #         units=1024,
+        #         activation=self._leaky_relu,
+        #         kernel_initializer=w_init_,
+        #         bias_initializer=b_init_,
+        #         name="fc2",
+        #     )
 
-            q_all = tf.layers.dense(
-                inputs=fc2,
-                units=self._num_actions,
-                kernel_initializer=w_init_,
-                bias_initializer=b_init_,
-                name=output_name,
-            )
+        #     q_all = tf.layers.dense(
+        #         inputs=fc2,
+        #         units=self._num_actions,
+        #         kernel_initializer=w_init_,
+        #         bias_initializer=b_init_,
+        #         name=output_name,
+        #     )
 
-        return q_all  # Shape: (None, num_actions)
+        # return q_all  # Shape: (None, num_actions)
 
     def _leaky_relu(self, features):
         return tf.nn.leaky_relu(features, alpha=self._leaky_alpha)
 
     def _filter_actions(self, q_all, actions):
-        with tf.variable_scope("action_filter"):
+        with tf.compat.v1.variable_scope("action_filter"):
             indices = tf.range(tf.shape(q_all)[0], dtype=tf.int32)
             action_indices = tf.stack([indices, actions], axis=1)
             return tf.gather_nd(q_all, action_indices)  # Shape: (None, )
